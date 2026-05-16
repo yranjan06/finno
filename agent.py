@@ -9,6 +9,7 @@ from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from groq import Groq
 from dotenv import load_dotenv
+from tools import get_recent_transactions, get_account_balance, get_upcoming_bills, set_reminder
 
 load_dotenv()
 
@@ -110,6 +111,51 @@ def save_memory(m: Memory):
     except IOError as e:
         print(f"[MEMORY] failed to save : {e}")
 
+def execute_tool(name: str, args: dict) -> str:
+    args = args or {}
+    print(f"\n[TOOL] {name}({args})")
+
+    if name == "get_account_balance":
+        result = get_account_balance()
+
+    elif name == "get_recent_transactions":
+        txns = get_recent_transactions(int(args.get("days", 30)))
+        category = args.get("category", "").strip().lower()
+
+        if category and category not in ("all", "any", "none"):
+            filtered = [t for t in txns if t["category"] == category]
+            total = sum(abs(t["amount"]) for t in filtered)
+            result = {
+                "category": category,
+                "total_spent": total,
+                "transaction_count": len(filtered)
+            }
+        else:
+            breakdown = {}
+            for t in txns:
+                if t["amount"] < 0:
+                    cat = t["category"]
+                    breakdown[cat] = breakdown.get(cat, 0) + abs(t["amount"])
+            result = {
+                "breakdown_by_category": breakdown,
+                "total_debits": sum(breakdown.values())
+            }
+
+    elif name == "get_upcoming_bills":
+        result = get_upcoming_bills(30)
+
+    elif name == "set_reminder":
+        result = set_reminder(
+            args.get("date", ""),
+            args.get("content", "")
+        )
+
+    else:
+        result = {"error": f"unknown tool: {name}"}
+
+    print(f"[RESULT] {json.dumps(result, indent=2)}")
+    return json.dumps(result)
+
 def agent_turn(messages: list) -> list:
     response = client.chat.completions.create(
         model=MODEL,
@@ -123,10 +169,6 @@ def agent_turn(messages: list) -> list:
     print(f"\n[FINNO] {final}")
     return messages
 
-# TODO: memory layer next
-# TODO: prompt builder next
-# TODO: tool executor next
-# TODO: agent loop next
 
 def run_session(session_num: int):
     print(f"\n{'='*50}\nFINNO - Session {session_num}\n{'='*50}\n")
