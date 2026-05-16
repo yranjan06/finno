@@ -164,6 +164,48 @@ def agent_turn(messages: list) -> list:
         tool_choice="auto"
     )
 
+    iteration = 0
+    # TODO: add max iteration guard later
+
+    while response.choices[0].finish_reason == "tool_calls":
+        msg = response.choices[0].message
+        # normalize to dict so messages list stays consistent
+        messages.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                }
+                for tc in msg.tool_calls
+            ]
+        })
+
+        tool_results = []
+        for tc in msg.tool_calls:
+            result = execute_tool(
+                tc.function.name,
+                json.loads(tc.function.arguments)
+            )
+            tool_results.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result
+            })
+
+        messages.extend(tool_results)
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=TOOL_DEFINITIONS,
+            tool_choice="auto"
+        )
+
     final = response.choices[0].message.content
     messages.append({"role": "assistant", "content": final})
     print(f"\n[FINNO] {final}")
