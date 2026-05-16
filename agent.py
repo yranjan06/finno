@@ -127,19 +127,13 @@ def execute_tool(name: str, args: dict) -> str:
             datetime.strptime(today, "%Y-%m-%d") - timedelta(days=days)
         ).strftime("%Y-%m-%d")
 
-        # DEBUG - checking filter is working correctly
-        print(f"[DEBUG] today={today} cutoff={cutoff} total_txns_before={len(txns)}")
         txns = [t for t in txns if t["date"] > cutoff]
-        print(f"[DEBUG] total_txns_after_filter={len(txns)}")
-        print(f"[DEBUG] dates_in_window={[t['date'] for t in txns]}")
 
         category = args.get("category", "").strip().lower()
 
         if category and category not in ("all", "any", "none"):
             filtered = [t for t in txns if t["category"] == category]
             total = sum(abs(t["amount"]) for t in filtered)
-            # DEBUG
-            print(f"[DEBUG] category={category} matched={len(filtered)} total={total}")
             result = {
                 "category": category,
                 "total_spent": total,
@@ -155,7 +149,7 @@ def execute_tool(name: str, args: dict) -> str:
                 "breakdown_by_category": breakdown,
                 "total_debits": sum(breakdown.values())
             }
-        
+
     elif name == "get_upcoming_bills":
         result = get_upcoming_bills(30)
 
