@@ -196,12 +196,10 @@ def agent_turn(messages: list) -> list:
         tool_choice="auto"
     )
 
-    iteration = 0
-    # TODO: add max iteration guard later
-
+    # was breaking out too early before , finish_reason check must happen first
     while response.choices[0].finish_reason == "tool_calls":
         msg = response.choices[0].message
-        # normalize to dict so messages list stays consistent
+
         messages.append({
             "role": "assistant",
             "content": msg.content or "",
@@ -231,6 +229,8 @@ def agent_turn(messages: list) -> list:
             })
 
         messages.extend(tool_results)
+
+        # re-enter with full updated messages list
         response = client.chat.completions.create(
             model=MODEL,
             messages=messages,
