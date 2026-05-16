@@ -110,6 +110,19 @@ def save_memory(m: Memory):
     except IOError as e:
         print(f"[MEMORY] failed to save : {e}")
 
+def agent_turn(messages: list) -> list:
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        tools=TOOL_DEFINITIONS,
+        tool_choice="auto"
+    )
+
+    final = response.choices[0].message.content
+    messages.append({"role": "assistant", "content": final})
+    print(f"\n[FINNO] {final}")
+    return messages
+
 # TODO: memory layer next
 # TODO: prompt builder next
 # TODO: tool executor next
@@ -117,7 +130,18 @@ def save_memory(m: Memory):
 
 def run_session(session_num: int):
     print(f"\n{'='*50}\nFINNO - Session {session_num}\n{'='*50}\n")
-    # TODO: build this out properly
+
+    memory = load_memory()
+    print(f"[MEMORY] Loaded: summary={memory.summary or 'none'}")
+
+    messages = [{"role": "system", "content": f"You are Priya's personal finance agent. Today is {SCENARIO_DATE.get(session_num)}"}]
+
+    while True:
+        user_input = input("\nYou: ").strip()
+        if user_input.lower() in ("exit", "quit"):
+            break
+        messages.append({"role": "user", "content": user_input})
+        messages = agent_turn(messages)
 
 
 if __name__ == "__main__":
