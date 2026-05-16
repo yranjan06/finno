@@ -10,6 +10,7 @@ from dataclasses import dataclass, field, asdict
 from groq import Groq
 from dotenv import load_dotenv
 from tools import get_recent_transactions, get_account_balance, get_upcoming_bills, set_reminder
+import re
 
 load_dotenv()
 
@@ -299,15 +300,28 @@ Note: target_amount for house down payment is always 1500000 (Rs.15 lakh)."""
         print(f"[MEMORY] extract_memory LLM call failed : {e}")
         return Memory()
 
-    # TODO: add proper JSON cleaning next commit
+    # strip markdown fences if model adds them anyway
+    # handles ```json , ```JSON , ``` , ~ fences etc
+    raw = re.sub(r"```[\w]*\n?", "", raw).strip()
+    raw = re.sub(r"```", "", raw).strip()
+
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
-        print(f"[MEMORY] bad JSON from LLM , will fix cleaning next")
+    except json.JSONDecodeError as e:
+        print(f"[MEMORY] still bad JSON after cleaning : {e}")
+        print(f"[MEMORY] raw output was : {raw[:200]}")
+        return Memory()
+
+    # guard against LLM returning unexpected keys
+    try:
+        valid = {k: v for k, v in data.items() if k in Memory.__dataclass_fields__}
+        memory = Memory(**valid)
+    except (TypeError, AttributeError) as e:
+        print(f"[MEMORY] memory construction failed : {e}")
         return Memory()
 
     print(f"\n[MEMORY] Extracted:\n{json.dumps(data, indent=2)}")
-    return Memory(**data)
+    return memory
 
 def run_session(session_num: int):
     print(f"\n{'='*50}\nFINNO - Session {session_num}\n{'='*50}\n")
