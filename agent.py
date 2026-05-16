@@ -88,6 +88,28 @@ class Memory:
     observed_patterns: list = field(default_factory=list)
     last_updated:      str  = ""
 
+def load_memory() -> Memory:
+    if not os.path.exists(MEMORY_FILE):
+        return Memory()
+    try:
+        with open(MEMORY_FILE, "r") as f:
+            data = json.load(f)
+        # filter unknown keys so old finno_memory.json files dont crash us
+        valid = {k: v for k, v in data.items() if k in Memory.__dataclass_fields__}
+        return Memory(**valid)
+    except (json.JSONDecodeError, TypeError):
+        print("[MEMORY] corrupted memory file , starting fresh")
+        return Memory()
+
+
+def save_memory(m: Memory):
+    m.last_updated = datetime.now().isoformat()
+    try:
+        with open(MEMORY_FILE, "w") as f:
+            json.dump(asdict(m), f, indent=2)
+    except IOError as e:
+        print(f"[MEMORY] failed to save : {e}")
+
 # TODO: memory layer next
 # TODO: prompt builder next
 # TODO: tool executor next
