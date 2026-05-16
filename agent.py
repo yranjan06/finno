@@ -188,6 +188,43 @@ If the user request conflicts with a commitment you MUST call set_reminder befor
 
     return base
 
+def extract_memory(messages: list) -> Memory:
+    transcript = "\n".join(
+        f"{m['role'].upper()}: {m['content']}"
+        for m in messages
+        if isinstance(m, dict)
+        and m.get("role") in ("user", "assistant")
+        and isinstance(m.get("content"), str)
+        and m.get("content").strip()
+    )
+
+    prompt = f"""Extract key information from this finance conversation.
+Return ONLY valid JSON - no markdown, no explanation, no extra text.
+
+Conversation:
+{transcript}
+
+Return exactly this structure:
+{{
+  "summary": "2-3 lines covering key decisions and commitments made",
+  "goals": [{{"goal_id": "g1", "description": "...", "target_amount": 1500000, "status": "active"}}],
+  "commitments": [{{"commitment_id": "c1", "action_item": "...", "frequency": "one-time", "due_date": "..."}}],
+  "observed_patterns": [{{"category": "...", "observation": "...", "confidence_score": "high"}}]
+}}
+
+Note: target_amount for house down payment is always 1500000 (Rs.15 lakh)."""
+
+    raw = client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    ).choices[0].message.content.strip()
+
+    # TODO: add proper JSON cleaning and error handling next
+    data = json.loads(raw)
+    print(f"\n[MEMORY] Extracted:\n{json.dumps(data, indent=2)}")
+    return Memory(**data)
+
 def agent_turn(messages: list) -> list:
     response = client.chat.completions.create(
         model=MODEL,
@@ -258,6 +295,11 @@ def run_session(session_num: int):
             break
         messages.append({"role": "user", "content": user_input})
         messages = agent_turn(messages)
+
+    if session_num == 1:
+        memory = extract_memory(messages)
+        save_memory(memory)
+        print("\n[MEMORY] Saved to disk.")
 
 
 
