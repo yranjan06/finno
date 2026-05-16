@@ -156,6 +156,38 @@ def execute_tool(name: str, args: dict) -> str:
     print(f"[RESULT] {json.dumps(result, indent=2)}")
     return json.dumps(result)
 
+
+def build_prompt(memory: Memory, session_num: int) -> str:
+    today = SCENARIO_DATE.get(session_num, "2025-11-03")
+
+    base = f"""You are Priya's personal finance agent.
+Today's date: {today}
+User: {USER_PROFILE['name']}, {USER_PROFILE['age']}, {USER_PROFILE['city']}, Rs.{USER_PROFILE['monthly_income']}/month
+Goal: {USER_PROFILE['goal']}
+
+Rules:
+- Balance / bills / transactions -> ALWAYS call the tool first, never quote memory numbers
+- For spending questions call get_recent_transactions with specific category
+- Do NOT show arithmetic steps in your response , just state the final number
+- Financial decision detected -> check active commitments first then respond
+- Call set_reminder when user asks to be reminded OR when request conflicts with a saved commitment
+- All reminder dates must be in November 2025 (today is {today})
+- Tone: brief, direct, friendly"""
+
+    if memory.summary:
+        base += f"""
+
+What I remember from last session:
+{memory.summary}
+Commitments: {memory.commitments}
+Goals: {memory.goals}
+Patterns: {memory.observed_patterns}
+
+Numbers above are stale - always fetch fresh via tools.
+If the user request conflicts with a commitment you MUST call set_reminder before responding."""
+
+    return base
+
 def agent_turn(messages: list) -> list:
     response = client.chat.completions.create(
         model=MODEL,
@@ -218,7 +250,7 @@ def run_session(session_num: int):
     memory = load_memory()
     print(f"[MEMORY] Loaded: summary={memory.summary or 'none'}")
 
-    messages = [{"role": "system", "content": f"You are Priya's personal finance agent. Today is {SCENARIO_DATE.get(session_num)}"}]
+    messages = [{"role": "system", "content": build_prompt(memory, session_num)}]
 
     while True:
         user_input = input("\nYou: ").strip()
@@ -226,6 +258,7 @@ def run_session(session_num: int):
             break
         messages.append({"role": "user", "content": user_input})
         messages = agent_turn(messages)
+
 
 
 if __name__ == "__main__":
