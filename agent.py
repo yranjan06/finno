@@ -196,6 +196,73 @@ If the user request conflicts with a commitment you MUST call set_reminder befor
 
     return base
 
+
+def agent_turn(messages: list) -> list:
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=TOOL_DEFINITIONS,
+            tool_choice="auto"
+        )
+    except Exception as e:
+        print(f"[FINNO] LLM call failed : {e}")
+        messages.append({"role": "assistant", "content": "Sorry, something went wrong. Please try again."})
+        return messages
+
+    while response.choices[0].finish_reason == "tool_calls":
+        msg = response.choices[0].message
+
+        messages.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                }
+                for tc in msg.tool_calls
+            ]
+        })
+
+        tool_results = []
+        for tc in msg.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                print(f"[TOOL] bad arguments from LLM : {tc.function.arguments}")
+                args = {}
+            result = execute_tool(tc.function.name, args)
+            tool_results.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result
+            })
+
+        messages.extend(tool_results)
+
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                tools=TOOL_DEFINITIONS,
+                tool_choice="auto"
+            )
+        except Exception as e:
+            print(f"[FINNO] LLM call failed after tool results : {e}")
+            messages.append({"role": "assistant", "content": "Sorry, something went wrong. Please try again."})
+            return messages
+
+    final = response.choices[0].message.content
+    messages.append({"role": "assistant", "content": final})
+    print(f"\n[FINNO] {final}")
+    return messages
+
+
 def extract_memory(messages: list) -> Memory:
     transcript = "\n".join(
         f"{m['role'].upper()}: {m['content']}"
@@ -222,72 +289,25 @@ Return exactly this structure:
 
 Note: target_amount for house down payment is always 1500000 (Rs.15 lakh)."""
 
-    raw = client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    ).choices[0].message.content.strip()
+    try:
+        raw = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0
+        ).choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[MEMORY] extract_memory LLM call failed : {e}")
+        return Memory()
 
-    # TODO: add proper JSON cleaning and error handling next
-    data = json.loads(raw)
+    # TODO: add proper JSON cleaning next commit
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        print(f"[MEMORY] bad JSON from LLM , will fix cleaning next")
+        return Memory()
+
     print(f"\n[MEMORY] Extracted:\n{json.dumps(data, indent=2)}")
     return Memory(**data)
-
-def agent_turn(messages: list) -> list:
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=messages,
-        tools=TOOL_DEFINITIONS,
-        tool_choice="auto"
-    )
-
-    # was breaking out too early before , finish_reason check must happen first
-    while response.choices[0].finish_reason == "tool_calls":
-        msg = response.choices[0].message
-
-        messages.append({
-            "role": "assistant",
-            "content": msg.content or "",
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments
-                    }
-                }
-                for tc in msg.tool_calls
-            ]
-        })
-
-        tool_results = []
-        for tc in msg.tool_calls:
-            result = execute_tool(
-                tc.function.name,
-                json.loads(tc.function.arguments)
-            )
-            tool_results.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result
-            })
-
-        messages.extend(tool_results)
-
-        # re-enter with full updated messages list
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=messages,
-            tools=TOOL_DEFINITIONS,
-            tool_choice="auto"
-        )
-
-    final = response.choices[0].message.content
-    messages.append({"role": "assistant", "content": final})
-    print(f"\n[FINNO] {final}")
-    return messages
-
 
 def run_session(session_num: int):
     print(f"\n{'='*50}\nFINNO - Session {session_num}\n{'='*50}\n")
