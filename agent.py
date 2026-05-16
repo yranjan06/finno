@@ -122,13 +122,13 @@ def execute_tool(name: str, args: dict) -> str:
         days = int(args.get("days", 30))
         txns = get_recent_transactions(days)
 
-        # tool says filtering by days is left to caller , doing it here
+        # strictly greater than cutoff , not including boundary date itself
         today = SCENARIO_DATE.get(_tools.CURRENT_SESSION, "2025-11-03")
         cutoff = (
             datetime.strptime(today, "%Y-%m-%d") - timedelta(days=days)
         ).strftime("%Y-%m-%d")
 
-        txns = [t for t in txns if t["date"] >= cutoff]
+        txns = [t for t in txns if t["date"] > cutoff]
 
         category = args.get("category", "").strip().lower()
 
@@ -150,7 +150,7 @@ def execute_tool(name: str, args: dict) -> str:
                 "breakdown_by_category": breakdown,
                 "total_debits": sum(breakdown.values())
             }
-
+        
     elif name == "get_upcoming_bills":
         result = get_upcoming_bills(30)
 
