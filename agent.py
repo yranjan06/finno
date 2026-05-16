@@ -5,7 +5,7 @@ Finno - personal finance agent
 import os
 import json
 import tools as _tools
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass, field, asdict
 from groq import Groq
 from dotenv import load_dotenv
@@ -119,7 +119,17 @@ def execute_tool(name: str, args: dict) -> str:
         result = get_account_balance()
 
     elif name == "get_recent_transactions":
-        txns = get_recent_transactions(int(args.get("days", 30)))
+        days = int(args.get("days", 30))
+        txns = get_recent_transactions(days)
+
+        # tool says filtering by days is left to caller , doing it here
+        today = SCENARIO_DATE.get(_tools.CURRENT_SESSION, "2025-11-03")
+        cutoff = (
+            datetime.strptime(today, "%Y-%m-%d") - timedelta(days=days)
+        ).strftime("%Y-%m-%d")
+
+        txns = [t for t in txns if t["date"] >= cutoff]
+
         category = args.get("category", "").strip().lower()
 
         if category and category not in ("all", "any", "none"):
@@ -155,7 +165,6 @@ def execute_tool(name: str, args: dict) -> str:
 
     print(f"[RESULT] {json.dumps(result, indent=2)}")
     return json.dumps(result)
-
 
 def build_prompt(memory: Memory, session_num: int) -> str:
     today = SCENARIO_DATE.get(session_num, "2025-11-03")
