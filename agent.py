@@ -122,19 +122,24 @@ def execute_tool(name: str, args: dict) -> str:
         days = int(args.get("days", 30))
         txns = get_recent_transactions(days)
 
-        # strictly greater than cutoff , not including boundary date itself
         today = SCENARIO_DATE.get(_tools.CURRENT_SESSION, "2025-11-03")
         cutoff = (
             datetime.strptime(today, "%Y-%m-%d") - timedelta(days=days)
         ).strftime("%Y-%m-%d")
 
+        # DEBUG - checking filter is working correctly
+        print(f"[DEBUG] today={today} cutoff={cutoff} total_txns_before={len(txns)}")
         txns = [t for t in txns if t["date"] > cutoff]
+        print(f"[DEBUG] total_txns_after_filter={len(txns)}")
+        print(f"[DEBUG] dates_in_window={[t['date'] for t in txns]}")
 
         category = args.get("category", "").strip().lower()
 
         if category and category not in ("all", "any", "none"):
             filtered = [t for t in txns if t["category"] == category]
             total = sum(abs(t["amount"]) for t in filtered)
+            # DEBUG
+            print(f"[DEBUG] category={category} matched={len(filtered)} total={total}")
             result = {
                 "category": category,
                 "total_spent": total,
