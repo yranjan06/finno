@@ -76,6 +76,17 @@ TOOL_DEFINITIONS = [
     }
 ]
 
+# what we store vs what we always fetch fresh
+# storing: goals, commitments, patterns, summary
+# never storing: balance, bills, transactions - those go stale
+
+@dataclass
+class Memory:
+    summary:           str  = ""
+    goals:             list = field(default_factory=list)
+    commitments:       list = field(default_factory=list)
+    observed_patterns: list = field(default_factory=list)
+    last_updated:      str  = ""
 
 # TODO: memory layer next
 # TODO: prompt builder next
