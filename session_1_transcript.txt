@@ -1,0 +1,36 @@
+FINNO — Session 1 Transcript
+Date: 2025-11-03
+==================================================
+
+USER: I just got my salary credited. Help me figure out how much I can realistically save this month.
+ASSISTANT: You have a total of Rs. 128000 in your checking account, Rs. 145000 in your savings account, Rs. 95000 in your house fund, and Rs. 280000 in your mutual funds. 
+
+Your upcoming bills include rent of Rs. 25000, SIP of Rs. 10000, internet and mobile bill of Rs. 3500, and credit card bill of Rs. 8000. 
+
+To calculate how much you can save this month, let's first calculate your total monthly expenses: Rs. 25000 (rent) + Rs. 10000 (SIP) + Rs. 3500 (internet and mobile) + Rs. 8000 (credit card) = Rs. 45000.
+
+You also want to save for your house down payment goal of Rs. 15 lakhs in 2 years. To achieve this, you need to save approximately Rs. 62500 per month (Rs. 15 lakhs / 24 months).
+
+Considering your salary is Rs. 120000 per month, and you have already accounted for Rs. 45000 in monthly expenses, you are left with Rs. 75000. 
+
+To meet your savings goal, you should allocate Rs. 62500 towards your house fund. This leaves you with Rs. 12500 for other expenses or savings.
+
+So, you can realistically save Rs. 12500 this month after meeting your expenses and savings goal.
+USER: I feel like I'm spending too much on food delivery. How much did I actually spend on it last month?
+ASSISTANT: You spent a total of Rs. 9890 on food delivery last month, spread across 8 transactions.
+USER: Okay that's worse than I thought. Let's say I want to cut that in half AND put aside ₹30,000 for my house fund this month — is that realistic given my upcoming bills?
+ASSISTANT: You have a total of Rs. 128000 in your checking account, Rs. 145000 in your savings account, Rs. 95000 in your house fund, and Rs. 280000 in your mutual funds. 
+
+Your upcoming bills include rent of Rs. 25000, SIP of Rs. 10000, internet and mobile bill of Rs. 3500, and credit card bill of Rs. 8000. 
+
+Your total monthly expenses are Rs. 25000 (rent) + Rs. 10000 (SIP) + Rs. 3500 (internet and mobile) + Rs. 8000 (credit card) = Rs. 45000.
+
+To cut your food delivery expenses in half, you aim to spend Rs. 4945 (half of Rs. 9890).
+
+You also want to allocate Rs. 30000 for your house fund this month.
+
+Considering your salary is Rs. 120000 per month, and you have already accounted for Rs. 45000 in monthly expenses, Rs. 4945 in reduced food delivery expenses, and Rs. 30000 for your house fund, you are left with Rs. 120000 - (Rs. 45000 + Rs. 4945 + Rs. 30000) = Rs. 18025 for other expenses or savings.
+
+Yes, it is realistic to cut your food delivery expenses in half and allocate Rs. 30000 for your house fund this month. This will also put you closer to your goal of saving Rs. 15 lakhs for your house down payment. The impact on your goal is that you will have saved an additional Rs. 30000 this month, bringing your total house fund to Rs. 125000.
+USER: Got it. Remind me to actually transfer the ₹30,000 to my house fund on the 25th.
+ASSISTANT: Reminder set for 2025-11-25 to transfer ₹30,000 to your house fund.
