@@ -5,6 +5,12 @@ Holds two conversations three days apart and demonstrates it actually learned so
 
 ---
 
+
+
+Uploading Kapture 2026-05-17 at 21.28.22.mp4…
+
+
+
 ## Setup
 
 ```bash
