@@ -155,10 +155,18 @@ def execute_tool(name: str, args: dict) -> str:
         result = get_upcoming_bills(30)
 
     elif name == "set_reminder":
-        result = set_reminder(
-            args.get("date", ""),
-            args.get("content", "")
-        )
+        date = args.get("date", "").strip()
+        content = args.get("content", "").strip()
+
+        # LLM sometimes forgets required params , guard both
+        if not date:
+            print("[TOOL] set_reminder called without date , skipping")
+            result = {"error": "date is required but was not provided"}
+        elif not content:
+            print("[TOOL] set_reminder called without content , skipping")
+            result = {"error": "content is required but was not provided"}
+        else:
+            result = set_reminder(date, content)
 
     else:
         result = {"error": f"unknown tool: {name}"}
