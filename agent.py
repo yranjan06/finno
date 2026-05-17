@@ -425,6 +425,36 @@ def run_session(session_num: int):
         print("\n[MEMORY] Updated and saved to disk.")
 
 
+def build_messages(memory: Memory, session_num: int) -> list:
+    return [{"role": "system", "content": build_prompt(memory, session_num)}]
+
+
+def run_session(session_num: int):
+    print(f"\n{'='*50}\nFINNO - Session {session_num}\n{'='*50}\n")
+
+    memory = load_memory()
+    print(f"[MEMORY] Loaded: summary={memory.summary or 'none'}")
+
+    # only inject memory if something was actually saved before
+    active_memory = memory if memory.summary else Memory()
+    messages = build_messages(active_memory, session_num)
+
+    while True:
+        user_input = input("\nYou: ").strip()
+        if user_input.lower() in ("exit", "quit"):
+            break
+        messages.append({"role": "user", "content": user_input})
+        messages = agent_turn(messages)
+
+    if session_num == 1:
+        memory = extract_memory(messages)
+        save_memory(memory)
+        print("\n[MEMORY] Saved to disk.")
+
+    elif session_num == 2:
+        memory = update_memory(memory, messages)
+        save_memory(memory)
+        print("\n[MEMORY] Updated and saved to disk.")
 
 if __name__ == "__main__":
     import sys
