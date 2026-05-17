@@ -21,7 +21,7 @@ SESSION_2_TURNS = [
 
 if __name__ == "__main__":
     session = int(sys.argv[1]) if len(sys.argv) > 1 else 1
-    turns = SESSION_1_TURNS if session == 1 else SESSION_2_TURNS
+    turns   = SESSION_1_TURNS if session == 1 else SESSION_2_TURNS
 
     if session == 2:
         tools.CURRENT_SESSION = 2
