@@ -8,7 +8,7 @@ Holds two conversations three days apart and demonstrates it actually learned so
 ## Setup
 
 ```bash
-git clone <repo>
+git clone https://github.com/yranjan06/finno.git
 cd finno
 
 python -m venv venv
