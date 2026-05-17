@@ -1,7 +1,6 @@
 """
-Finno - personal finance agent
-Session 1 writes memory to disk, session 2 picks it up.
-No frameworks. LLM only for judgment, math stays in code.
+Finno — finance agent. Session 1 writes memory, session 2 picks it up.
+No frameworks. LLM for judgment only, math in code.
 """
 
 import os, re, json
@@ -13,74 +12,27 @@ from dotenv import load_dotenv
 from tools import get_recent_transactions, get_account_balance, get_upcoming_bills, set_reminder
 
 load_dotenv()
-
 if not os.getenv("GROQ_API_KEY"):
-    raise EnvironmentError("[FINNO] GROQ_API_KEY not set , copy .env.example to .env and add your key")
+    raise EnvironmentError("GROQ_API_KEY not set — copy .env.example to .env")
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-MEMORY_FILE = "finno_memory.json"
-
-USER_PROFILE = {
+MODEL  = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+MEMORY_FILE   = "finno_memory.json"
+SCENARIO_DATE = {1: "2025-11-03", 2: "2025-11-06"}
+USER_PROFILE  = {
     "name": "Priya Sharma", "age": 28, "city": "Bangalore",
-    "monthly_income": 120000,
-    "goal": "Save Rs.15L in 2 years for house down payment"
+    "monthly_income": 120000, "goal": "Save Rs.15L in 2 years for house down payment"
 }
 
-# hardcoding scenario dates — datetime.now() gives wrong year since this runs in 2026
-SCENARIO_DATE = {1: "2025-11-03", 2: "2025-11-06"}
-
-TOOL_DEFINITIONS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_account_balance",
-            "description": "Get current account balances. Always call for fresh data.",
-            "parameters": {"type": "object", "properties": {}, "required": []}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_recent_transactions",
-            "description": "Get transactions for last N days. Pass category to filter e.g. food_delivery, rent.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "days":     {"type": "integer", "description": "Days to look back"},
-                    "category": {"type": "string",  "description": "Category to filter e.g. food_delivery"}
-                },
-                "required": ["days"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_upcoming_bills",
-            "description": "Get upcoming bills for next 30 days.",
-            "parameters": {"type": "object", "properties": {}, "required": []}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "set_reminder",
-            "description": "Set a reminder for the user.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "date":    {"type": "string", "description": "Date YYYY-MM-DD"},
-                    "content": {"type": "string", "description": "Reminder text"}
-                },
-                "required": ["date", "content"]
-            }
-        }
-    }
+TOOLS = [
+    {"type":"function","function":{"name":"get_account_balance","description":"Get current balances. Always call for fresh data.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"get_recent_transactions","description":"Transactions for last N days. Pass category to filter e.g. food_delivery.","parameters":{"type":"object","properties":{"days":{"type":"integer","description":"Days to look back"},"category":{"type":"string","description":"Category to filter"}},"required":["days"]}}},
+    {"type":"function","function":{"name":"get_upcoming_bills","description":"Upcoming bills for next 30 days.","parameters":{"type":"object","properties":{},"required":[]}}},
+    {"type":"function","function":{"name":"set_reminder","description":"Set a reminder.","parameters":{"type":"object","properties":{"date":{"type":"string","description":"YYYY-MM-DD"},"content":{"type":"string","description":"Reminder text"}},"required":["date","content"]}}}
 ]
 
-# storing: goals, commitments, patterns, summary
-# never storing: balance, bills, transactions — those go stale
+# store: goals, commitments, patterns, summary
+# never store: balance, bills, transactions — stale instantly
 
 @dataclass
 class Memory:
@@ -95,12 +47,12 @@ def load_memory() -> Memory:
     if not os.path.exists(MEMORY_FILE):
         return Memory()
     try:
-        with open(MEMORY_FILE, "r") as f:
+        with open(MEMORY_FILE) as f:
             data = json.load(f)
         valid = {k: v for k, v in data.items() if k in Memory.__dataclass_fields__}
         return Memory(**valid)
     except (json.JSONDecodeError, TypeError):
-        print("[MEMORY] corrupted memory file , starting fresh")
+        print("[MEMORY] corrupted , starting fresh")
         return Memory()
 
 
@@ -110,56 +62,55 @@ def save_memory(m: Memory):
         with open(MEMORY_FILE, "w") as f:
             json.dump(asdict(m), f, indent=2)
     except IOError as e:
-        print(f"[MEMORY] failed to save : {e}")
+        print(f"[MEMORY] save failed : {e}")
 
 
 def execute_tool(name: str, args: dict) -> str:
     args = args or {}
-    print(f"\n[TOOL] calling {name} with {args}")
+    print(f"\n[TOOL] {name}({args})")
 
-    if name == "get_account_balance":
-        result = get_account_balance()
+    try:
+        if name == "get_account_balance":
+            result = get_account_balance()
 
-    elif name == "get_recent_transactions":
-        days  = int(args.get("days", 30))
-        today = SCENARIO_DATE.get(_tools.CURRENT_SESSION, "2025-11-03")
-        cutoff = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=days)).strftime("%Y-%m-%d")
+        elif name == "get_recent_transactions":
+            days   = int(args.get("days", 30))
+            today  = SCENARIO_DATE.get(_tools.CURRENT_SESSION, "2025-11-03")
+            cutoff = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=days)).strftime("%Y-%m-%d")
+            txns   = [t for t in get_recent_transactions(days) if t["date"] > cutoff]
+            cat    = args.get("category", "").strip().lower()
 
-        # tool says filtering by days is left to caller
-        txns     = [t for t in get_recent_transactions(days) if t["date"] > cutoff]
-        category = args.get("category", "").strip().lower()
+            if cat and cat not in ("all", "any", "none"):
+                filtered = [t for t in txns if t["category"] == cat]
+                result   = {
+                    "category":          cat,
+                    "total_spent":       sum(abs(t["amount"]) for t in filtered),
+                    "transaction_count": len(filtered)
+                }
+            else:
+                bd = {}
+                for t in txns:
+                    if t["amount"] < 0:
+                        bd[t["category"]] = bd.get(t["category"], 0) + abs(t["amount"])
+                result = {"breakdown_by_category": bd, "total_debits": sum(bd.values())}
 
-        if category and category not in ("all", "any", "none"):
-            filtered = [t for t in txns if t["category"] == category]
-            result   = {
-                "category":          category,
-                "total_spent":       sum(abs(t["amount"]) for t in filtered),
-                "transaction_count": len(filtered)
-            }
+        elif name == "get_upcoming_bills":
+            result = get_upcoming_bills(30)
+
+        elif name == "set_reminder":
+            date, content = args.get("date","").strip(), args.get("content","").strip()
+            if not date or not content:
+                print(f"[TOOL] set_reminder missing {'date' if not date else 'content'}")
+                result = {"error": "date and content are required"}
+            else:
+                result = set_reminder(date, content)
+
         else:
-            breakdown = {}
-            for t in txns:
-                if t["amount"] < 0:
-                    breakdown[t["category"]] = breakdown.get(t["category"], 0) + abs(t["amount"])
-            result = {"breakdown_by_category": breakdown, "total_debits": sum(breakdown.values())}
+            result = {"error": f"unknown tool: {name}"}
 
-    elif name == "get_upcoming_bills":
-        result = get_upcoming_bills(30)
-
-    elif name == "set_reminder":
-        date    = args.get("date", "").strip()
-        content = args.get("content", "").strip()
-        if not date:
-            print("[TOOL] set_reminder missing date , skipping")
-            result = {"error": "date is required but was not provided"}
-        elif not content:
-            print("[TOOL] set_reminder missing content , skipping")
-            result = {"error": "content is required but was not provided"}
-        else:
-            result = set_reminder(date, content)
-
-    else:
-        result = {"error": f"unknown tool: {name}"}
+    except Exception as e:
+        print(f"[TOOL] {name} crashed : {e}")
+        result = {"error": str(e)}
 
     print(f"[TOOL] result: {json.dumps(result, indent=2)}")
     return json.dumps(result)
@@ -167,77 +118,56 @@ def execute_tool(name: str, args: dict) -> str:
 
 def build_prompt(memory: Memory, session_num: int) -> str:
     today = SCENARIO_DATE.get(session_num, "2025-11-03")
-    base  = f"""You are Priya's personal finance agent.
-Today: {today} | User: {USER_PROFILE['name']}, {USER_PROFILE['age']}, {USER_PROFILE['city']}, Rs.{USER_PROFILE['monthly_income']}/month
+    p = f"""You are Priya's personal finance agent.
+Today: {today} | {USER_PROFILE['name']}, {USER_PROFILE['age']}, {USER_PROFILE['city']}, Rs.{USER_PROFILE['monthly_income']}/month
 Goal: {USER_PROFILE['goal']}
 
 Rules:
-- Balance / bills / transactions -> ALWAYS call the tool first, never quote memory numbers
-- For spending questions call get_recent_transactions with specific category
-- Do NOT show arithmetic steps , just state the final number
-- Financial decision detected -> check active commitments first then respond
-- Call set_reminder when user asks to be reminded OR when request conflicts with a saved commitment
-- All reminder dates must be in November 2025
-- Tone: brief, direct, friendly"""
+- balance/bills/transactions -> ALWAYS call tool first, never quote memory numbers
+- spending questions -> call get_recent_transactions with specific category
+- do NOT show arithmetic , just state final number
+- financial decision -> check commitments first
+- call set_reminder when asked OR when request conflicts with commitment
+- reminder dates must be November 2025
+- tone: brief, direct, friendly"""
 
     if memory.summary:
-        base += f"""
+        p += f"""
 
-What I remember from last session:
+Last session:
 {memory.summary}
 Commitments: {memory.commitments}
 Goals: {memory.goals}
 Patterns: {memory.observed_patterns}
 
-Numbers above are stale - always fetch fresh via tools.
-If user request conflicts with a commitment , call set_reminder before responding."""
-
-    return base
+These numbers are stale — fetch fresh via tools.
+If request conflicts with commitment , call set_reminder first."""
+    return p
 
 
 def build_transcript(messages: list) -> str:
     return "\n".join(
-        f"{m['role'].upper()}: {m['content']}"
-        for m in messages
-        if isinstance(m, dict)
-        and m.get("role") in ("user", "assistant")
-        and isinstance(m.get("content"), str)
-        and m.get("content").strip()
+        f"{m['role'].upper()}: {m['content']}" for m in messages
+        if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+        and isinstance(m.get("content"), str) and m["content"].strip()
     )
 
 
 def sync_memory(existing: Memory, messages: list) -> Memory:
-    """
-    Single memory function for both sessions.
-    Session 1 : existing is empty , extracts fresh memory from conversation.
-    Session 2 : existing has data , merges new observations in.
-    """
-    has_existing = bool(existing.summary)
+    has            = bool(existing.summary)
+    existing_block = f"Existing memory:\n{json.dumps(asdict(existing), indent=2)}\n\n" if has else ""
+    action         = "merge new observations in, do not drop existing commitments" if has else "extract key information"
 
-    existing_block = f"""
-Existing memory to update:
-{json.dumps(asdict(existing), indent=2)}
-
-""" if has_existing else ""
-
-    instruction = "update the memory merging new observations in. Do not drop existing commitments or goals." \
-        if has_existing else "extract key information from this conversation."
-
-    prompt = f"""Given this finance conversation , {instruction}
-Return ONLY valid JSON - no markdown, no explanation.
+    prompt = f"""Finance conversation — {action}.
+Return ONLY valid JSON, no markdown.
 
 {existing_block}Conversation:
 {build_transcript(messages)}
 
-Return exactly this structure:
-{{
-  "summary": "2-3 lines covering key decisions and commitments made",
-  "goals": [{{"goal_id": "g1", "description": "...", "target_amount": 1500000, "status": "active"}}],
-  "commitments": [{{"commitment_id": "c1", "action_item": "...", "frequency": "one-time", "due_date": "..."}}],
-  "observed_patterns": [{{"category": "...", "observation": "...", "confidence_score": "high"}}]
-}}
+Return:
+{{"summary":"2-3 lines on key decisions","goals":[{{"goal_id":"g1","description":"...","target_amount":1500000,"status":"active"}}],"commitments":[{{"commitment_id":"c1","action_item":"...","frequency":"one-time","due_date":"..."}}],"observed_patterns":[{{"category":"...","observation":"...","confidence_score":"high"}}]}}
 
-Note: target_amount for house down payment is always 1500000 (Rs.15 lakh)."""
+House down payment target_amount is always 1500000."""
 
     try:
         raw = client.chat.completions.create(
@@ -246,43 +176,40 @@ Note: target_amount for house down payment is always 1500000 (Rs.15 lakh)."""
             temperature=0
         ).choices[0].message.content.strip()
     except Exception as e:
-        print(f"[MEMORY] sync_memory LLM call failed : {e}")
+        print(f"[MEMORY] sync failed : {e}")
         return existing
 
-    raw = re.sub(r"```[\w]*\n?", "", raw).strip()
-    raw = re.sub(r"```", "", raw).strip()
+    raw = re.sub(r"```[\w]*\n?|```", "", raw).strip()
 
     try:
         data  = json.loads(raw)
         valid = {k: v for k, v in data.items() if k in Memory.__dataclass_fields__}
         mem   = Memory(**valid)
+        print(f"\n[MEMORY] Synced:\n{json.dumps(data, indent=2)}")
+        return mem
     except (json.JSONDecodeError, TypeError) as e:
-        print(f"[MEMORY] bad JSON after cleaning : {e}")
+        print(f"[MEMORY] bad JSON : {e}")
         return existing
-
-    print(f"\n[MEMORY] Synced:\n{json.dumps(data, indent=2)}")
-    return mem
 
 
 def agent_turn(messages: list) -> list:
     try:
         response = client.chat.completions.create(
             model=MODEL, messages=messages,
-            tools=TOOL_DEFINITIONS, tool_choice="auto"
+            tools=TOOLS, tool_choice="auto"
         )
     except Exception as e:
-        print(f"[FINNO] LLM call failed : {e}")
-        messages.append({"role": "assistant", "content": "Sorry, something went wrong. Please try again."})
+        print(f"[FINNO] LLM failed : {e}")
+        messages.append({"role": "assistant", "content": "Something went wrong, please try again."})
         return messages
 
-    iteration     = 0
-    MAX_ITERATIONS = 10
+    iteration, MAX_ITER = 0, 10
 
     while response.choices[0].finish_reason == "tool_calls":
         iteration += 1
-        if iteration > MAX_ITERATIONS:
-            print(f"[FINNO] hit max tool iterations ({MAX_ITERATIONS}) , breaking out")
-            messages.append({"role": "assistant", "content": "Sorry, I got stuck. Please try again."})
+        if iteration > MAX_ITER:
+            print(f"[FINNO] hit max iterations , breaking")
+            messages.append({"role": "assistant", "content": "Got stuck, please try again."})
             return messages
 
         msg = response.choices[0].message
@@ -303,12 +230,12 @@ def agent_turn(messages: list) -> list:
             try:
                 args = json.loads(tc.function.arguments)
             except json.JSONDecodeError:
-                print(f"[TOOL] bad arguments from LLM : {tc.function.arguments}")
+                print(f"[TOOL] bad args : {tc.function.arguments}")
                 args = {}
             tool_results.append({
-                "role": "tool",
+                "role":         "tool",
                 "tool_call_id": tc.id,
-                "content": execute_tool(tc.function.name, args)
+                "content":      execute_tool(tc.function.name, args)
             })
 
         messages.extend(tool_results)
@@ -316,11 +243,11 @@ def agent_turn(messages: list) -> list:
         try:
             response = client.chat.completions.create(
                 model=MODEL, messages=messages,
-                tools=TOOL_DEFINITIONS, tool_choice="auto"
+                tools=TOOLS, tool_choice="auto"
             )
         except Exception as e:
-            print(f"[FINNO] LLM call failed after tool results : {e}")
-            messages.append({"role": "assistant", "content": "Sorry, something went wrong. Please try again."})
+            print(f"[FINNO] LLM failed after tools : {e}")
+            messages.append({"role": "assistant", "content": "Something went wrong, please try again."})
             return messages
 
     final = response.choices[0].message.content
@@ -330,13 +257,12 @@ def agent_turn(messages: list) -> list:
 
 
 def run_session(session_num: int):
-    print(f"\n{'='*50}\nFINNO - Session {session_num}\n{'='*50}\n")
-
+    print(f"\n{'='*50}\nFINNO — Session {session_num}\n{'='*50}\n")
     memory = load_memory()
-    print(f"[MEMORY] Loaded: summary={memory.summary or 'none'}")
+    print(f"[MEMORY] Loaded: {memory.summary or 'none'}")
 
-    active_memory = memory if memory.summary else Memory()
-    messages      = [{"role": "system", "content": build_prompt(active_memory, session_num)}]
+    active   = memory if memory.summary else Memory()
+    messages = [{"role": "system", "content": build_prompt(active, session_num)}]
 
     while True:
         user_input = input("\nYou: ").strip()
@@ -347,7 +273,7 @@ def run_session(session_num: int):
 
     memory = sync_memory(memory, messages)
     save_memory(memory)
-    print("\n[MEMORY] Saved to disk.")
+    print("\n[MEMORY] Saved.")
 
 
 if __name__ == "__main__":
