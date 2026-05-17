@@ -7,7 +7,7 @@ Holds two conversations three days apart and demonstrates it actually learned so
 
 
 
-Uploading Kapture 2026-05-17 at 21.28.22.mp4…
+[Uploading Kapture 2026-05-17 at 21.28.22.mp4…](https://github.com/user-attachments/assets/eabe5cdf-434d-42f8-9753-be9be9d8d7b6)
 
 
 
