@@ -219,7 +219,17 @@ def agent_turn(messages: list) -> list:
         messages.append({"role": "assistant", "content": "Sorry, something went wrong. Please try again."})
         return messages
 
+    iteration = 0
+    MAX_ITERATIONS = 10
+
     while response.choices[0].finish_reason == "tool_calls":
+
+        iteration += 1
+        if iteration > MAX_ITERATIONS:
+            print(f"[FINNO] hit max tool iterations ({MAX_ITERATIONS}) , breaking out")
+            messages.append({"role": "assistant", "content": "Sorry, I got stuck in a loop. Please try again."})
+            return messages
+
         msg = response.choices[0].message
 
         messages.append({
