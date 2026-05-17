@@ -1,8 +1,11 @@
 """
 Finno - personal finance agent
+Session 1 writes memory to disk, session 2 picks it up.
+No frameworks. LLM only for judgment, math stays in code.
 """
 
 import os
+import re
 import json
 import tools as _tools
 from datetime import datetime, timedelta
@@ -10,16 +13,15 @@ from dataclasses import dataclass, field, asdict
 from groq import Groq
 from dotenv import load_dotenv
 from tools import get_recent_transactions, get_account_balance, get_upcoming_bills, set_reminder
-import re
 
 load_dotenv()
+
+if not os.getenv("GROQ_API_KEY"):
+    raise EnvironmentError("[FINNO] GROQ_API_KEY not set , copy .env.example to .env and add your key")
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 MEMORY_FILE = "finno_memory.json"
-
-if not os.getenv("GROQ_API_KEY"):
-    raise EnvironmentError("[FINNO] GROQ_API_KEY not set , copy .env.example to .env and add your key")
 
 USER_PROFILE = {
     "name": "Priya Sharma",
@@ -29,7 +31,7 @@ USER_PROFILE = {
     "goal": "Save Rs.15L in 2 years for house down payment"
 }
 
-# hardcoding scenario dates because datetime.now() gives wrong year since this runs in 2025
+# hardcoding scenario dates — datetime.now() gives wrong year since this runs in 2026
 SCENARIO_DATE = {1: "2025-11-03", 2: "2025-11-06"}
 
 TOOL_DEFINITIONS = [
@@ -93,6 +95,7 @@ class Memory:
     observed_patterns: list = field(default_factory=list)
     last_updated:      str  = ""
 
+
 def load_memory() -> Memory:
     if not os.path.exists(MEMORY_FILE):
         return Memory()
@@ -126,6 +129,7 @@ def execute_tool(name: str, args: dict) -> str:
         days = int(args.get("days", 30))
         txns = get_recent_transactions(days)
 
+        # tool says filtering by days is left to caller
         today = SCENARIO_DATE.get(_tools.CURRENT_SESSION, "2025-11-03")
         cutoff = (
             datetime.strptime(today, "%Y-%m-%d") - timedelta(days=days)
@@ -176,7 +180,6 @@ def execute_tool(name: str, args: dict) -> str:
     return json.dumps(result)
 
 
-
 def build_prompt(memory: Memory, session_num: int) -> str:
     today = SCENARIO_DATE.get(session_num, "2025-11-03")
 
@@ -207,6 +210,10 @@ Numbers above are stale - always fetch fresh via tools.
 If the user request conflicts with a commitment you MUST call set_reminder before responding."""
 
     return base
+
+
+def build_messages(memory: Memory, session_num: int) -> list:
+    return [{"role": "system", "content": build_prompt(memory, session_num)}]
 
 
 def agent_turn(messages: list) -> list:
@@ -320,28 +327,20 @@ Note: target_amount for house down payment is always 1500000 (Rs.15 lakh)."""
         print(f"[MEMORY] extract_memory LLM call failed : {e}")
         return Memory()
 
-    # strip markdown fences if model adds them anyway
-    # handles ```json , ```JSON , ``` , ~ fences etc
     raw = re.sub(r"```[\w]*\n?", "", raw).strip()
     raw = re.sub(r"```", "", raw).strip()
 
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        print(f"[MEMORY] still bad JSON after cleaning : {e}")
-        print(f"[MEMORY] raw output was : {raw[:200]}")
-        return Memory()
-
-    # guard against LLM returning unexpected keys
-    try:
         valid = {k: v for k, v in data.items() if k in Memory.__dataclass_fields__}
         memory = Memory(**valid)
-    except (TypeError, AttributeError) as e:
-        print(f"[MEMORY] memory construction failed : {e}")
+    except (json.JSONDecodeError, TypeError) as e:
+        print(f"[MEMORY] still bad JSON after cleaning : {e}")
         return Memory()
 
     print(f"\n[MEMORY] Extracted:\n{json.dumps(data, indent=2)}")
     return memory
+
 
 def update_memory(existing: Memory, messages: list) -> Memory:
     transcript = "\n".join(
@@ -396,35 +395,6 @@ Only add genuinely new information. Do not drop existing commitments or goals.""
     print(f"\n[MEMORY] Updated:\n{json.dumps(data, indent=2)}")
     return updated
 
-def run_session(session_num: int):
-    print(f"\n{'='*50}\nFINNO - Session {session_num}\n{'='*50}\n")
-
-    memory = load_memory()
-    print(f"[MEMORY] Loaded: summary={memory.summary or 'none'}")
-
-    messages = [{"role": "system", "content": build_prompt(memory, session_num)}]
-
-    while True:
-        user_input = input("\nYou: ").strip()
-        if user_input.lower() in ("exit", "quit"):
-            break
-        messages.append({"role": "user", "content": user_input})
-        messages = agent_turn(messages)
-
-    if session_num == 1:
-        memory = extract_memory(messages)
-        save_memory(memory)
-        print("\n[MEMORY] Saved to disk.")
-
-    elif session_num == 2:
-        memory = update_memory(memory, messages)
-        save_memory(memory)
-        print("\n[MEMORY] Updated and saved to disk.")
-
-
-def build_messages(memory: Memory, session_num: int) -> list:
-    return [{"role": "system", "content": build_prompt(memory, session_num)}]
-
 
 def run_session(session_num: int):
     print(f"\n{'='*50}\nFINNO - Session {session_num}\n{'='*50}\n")
@@ -432,7 +402,6 @@ def run_session(session_num: int):
     memory = load_memory()
     print(f"[MEMORY] Loaded: summary={memory.summary or 'none'}")
 
-    # only inject memory if something was actually saved before
     active_memory = memory if memory.summary else Memory()
     messages = build_messages(active_memory, session_num)
 
@@ -452,6 +421,7 @@ def run_session(session_num: int):
         memory = update_memory(memory, messages)
         save_memory(memory)
         print("\n[MEMORY] Updated and saved to disk.")
+
 
 if __name__ == "__main__":
     import sys
