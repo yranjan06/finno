@@ -232,20 +232,22 @@ def agent_turn(messages: list) -> list:
 
         msg = response.choices[0].message
 
+        # normalize fully to dict , no SDK objects in messages list
+        tool_calls_dict = []
+        for tc in msg.tool_calls:
+            tool_calls_dict.append({
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments
+                }
+            })
+
         messages.append({
             "role": "assistant",
             "content": msg.content or "",
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments
-                    }
-                }
-                for tc in msg.tool_calls
-            ]
+            "tool_calls": tool_calls_dict
         })
 
         tool_results = []
