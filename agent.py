@@ -343,6 +343,59 @@ Note: target_amount for house down payment is always 1500000 (Rs.15 lakh)."""
     print(f"\n[MEMORY] Extracted:\n{json.dumps(data, indent=2)}")
     return memory
 
+def update_memory(existing: Memory, messages: list) -> Memory:
+    transcript = "\n".join(
+        f"{m['role'].upper()}: {m['content']}"
+        for m in messages
+        if isinstance(m, dict)
+        and m.get("role") in ("user", "assistant")
+        and isinstance(m.get("content"), str)
+        and m.get("content").strip()
+    )
+
+    prompt = f"""Given this existing memory and a new conversation, update the memory with any new observations or decisions.
+Return ONLY valid JSON - no markdown, no explanation.
+
+Existing memory:
+{json.dumps(asdict(existing), indent=2)}
+
+New conversation:
+{transcript}
+
+Return exactly this structure with updates merged in:
+{{
+  "summary": "updated 2-3 lines covering all sessions so far",
+  "goals": [{{"goal_id": "g1", "description": "...", "target_amount": 1500000, "status": "active"}}],
+  "commitments": [{{"commitment_id": "c1", "action_item": "...", "frequency": "one-time", "due_date": "..."}}],
+  "observed_patterns": [{{"category": "...", "observation": "...", "confidence_score": "high"}}]
+}}
+
+Only add genuinely new information. Do not drop existing commitments or goals."""
+
+    try:
+        raw = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0
+        ).choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[MEMORY] update_memory LLM call failed : {e}")
+        return existing
+
+    raw = re.sub(r"```[\w]*\n?", "", raw).strip()
+    raw = re.sub(r"```", "", raw).strip()
+
+    try:
+        data = json.loads(raw)
+        valid = {k: v for k, v in data.items() if k in Memory.__dataclass_fields__}
+        updated = Memory(**valid)
+    except (json.JSONDecodeError, TypeError) as e:
+        print(f"[MEMORY] update failed , keeping existing : {e}")
+        return existing
+
+    print(f"\n[MEMORY] Updated:\n{json.dumps(data, indent=2)}")
+    return updated
+
 def run_session(session_num: int):
     print(f"\n{'='*50}\nFINNO - Session {session_num}\n{'='*50}\n")
 
@@ -362,6 +415,11 @@ def run_session(session_num: int):
         memory = extract_memory(messages)
         save_memory(memory)
         print("\n[MEMORY] Saved to disk.")
+
+    elif session_num == 2:
+        memory = update_memory(memory, messages)
+        save_memory(memory)
+        print("\n[MEMORY] Updated and saved to disk.")
 
 
 
