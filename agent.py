@@ -18,6 +18,9 @@ client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 MEMORY_FILE = "finno_memory.json"
 
+if not os.getenv("GROQ_API_KEY"):
+    raise EnvironmentError("[FINNO] GROQ_API_KEY not set , copy .env.example to .env and add your key")
+
 USER_PROFILE = {
     "name": "Priya Sharma",
     "age": 28,
