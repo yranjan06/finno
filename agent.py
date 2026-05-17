@@ -26,7 +26,7 @@ USER_PROFILE  = {
 
 TOOLS = [
     {"type":"function","function":{"name":"get_account_balance","description":"Get current balances. Always call for fresh data.","parameters":{"type":"object","properties":{},"required":[]}}},
-    {"type":"function","function":{"name":"get_recent_transactions","description":"Transactions for last N days. Pass category to filter e.g. food_delivery.","parameters":{"type":"object","properties":{"days":{"type":"integer","description":"Days to look back. Must be an integer e.g. 30"},"category":{"type":"string","description":"Category to filter"}},"required":["days"]}}},
+    {"type":"function","function":{"name":"get_recent_transactions","description":"Transactions for last N days. IMPORTANT: days must be an integer number, never a string. Correct: 30. Wrong: '30'.","parameters":{"type":"object","properties":{"days":{"type":"integer","description":"Number of days to look back. Must be integer. Example: 30"},"category":{"type":"string","description":"Category to filter e.g. food_delivery"}},"required":["days"]}}},
     {"type":"function","function":{"name":"get_upcoming_bills","description":"Upcoming bills for next 30 days.","parameters":{"type":"object","properties":{},"required":[]}}},
     {"type":"function","function":{"name":"set_reminder","description":"Set a reminder.","parameters":{"type":"object","properties":{"date":{"type":"string","description":"YYYY-MM-DD"},"content":{"type":"string","description":"Reminder text"}},"required":["date","content"]}}}
 ]
@@ -52,7 +52,7 @@ def load_memory() -> Memory:
         valid = {k: v for k, v in data.items() if k in Memory.__dataclass_fields__}
         return Memory(**valid)
     except (json.JSONDecodeError, TypeError):
-        print("[MEMORY] corrupted , starting fresh")
+        print("[MEMORY] corrupted, starting fresh")
         return Memory()
 
 
@@ -62,17 +62,16 @@ def save_memory(m: Memory):
         with open(MEMORY_FILE, "w") as f:
             json.dump(asdict(m), f, indent=2)
     except IOError as e:
-        print(f"[MEMORY] save failed : {e}")
+        print(f"[MEMORY] save failed: {e}")
 
 
-# FIX 3 — single safe_args helper, replaces duplicate int-cast patches
 def safe_args(name: str, args: dict) -> dict:
-    """Normalise tool arguments before dispatch. One place, not two."""
+    """Normalise tool arguments before dispatch. Single place, not duplicated."""
     if name == "get_recent_transactions" and "days" in args:
         try:
             args["days"] = int(args["days"])
         except (ValueError, TypeError):
-            args["days"] = 30  # safe default
+            args["days"] = 30
     return args
 
 
@@ -120,7 +119,7 @@ def execute_tool(name: str, args: dict) -> str:
             result = {"error": f"unknown tool: {name}"}
 
     except Exception as e:
-        print(f"[TOOL] {name} crashed : {e}")
+        print(f"[TOOL] {name} crashed: {e}")
         result = {"error": str(e)}
 
     print(f"[TOOL] result: {json.dumps(result, indent=2)}")
@@ -129,8 +128,6 @@ def execute_tool(name: str, args: dict) -> str:
 
 def build_prompt(memory: Memory, session_num: int) -> str:
     today = SCENARIO_DATE.get(session_num, "2025-11-03")
-    # FIX 6 — removed "do NOT show arithmetic" rule which contradicted
-    # "show how the purchase affects their savings goal"
     p = f"""You are Priya's personal finance agent.
 Today: {today} | {USER_PROFILE['name']}, {USER_PROFILE['age']}, {USER_PROFILE['city']}, Rs.{USER_PROFILE['monthly_income']}/month
 Goal: {USER_PROFILE['goal']}
@@ -142,6 +139,7 @@ Rules:
 - call set_reminder when asked OR when request conflicts with commitment
 - reminder dates must be November 2025
 - tone: brief, direct, friendly
+- when quoting balances, copy the EXACT number from the tool result — do not reformat, recalculate, or combine accounts
 
 For purchase decisions:
 - call get_account_balance and get_upcoming_bills first
@@ -160,7 +158,7 @@ Goals: {memory.goals}
 Patterns: {memory.observed_patterns}
 
 These numbers are stale — fetch fresh via tools.
-If request conflicts with commitment , call set_reminder first."""
+If request conflicts with commitment, call set_reminder first."""
     return p
 
 
@@ -184,9 +182,11 @@ Return ONLY valid JSON, no markdown.
 {build_transcript(messages)}
 
 Return:
-{{"summary":"2-3 lines on key decisions","goals":[{{"goal_id":"g1","description":"...","target_amount":1500000,"status":"active"}}],"commitments":[{{"commitment_id":"c1","action_item":"...","frequency":"one-time","due_date":"..."}}],"observed_patterns":[{{"category":"...","observation":"...","confidence_score":"high"}}]}}
+{{"summary":"2-3 lines on key decisions","goals":[{{"goal_id":"g1","description":"...","target_amount":1500000,"status":"active"}}],"commitments":[{{"commitment_id":"c1","action_item":"...","frequency":"one-time","due_date":"YYYY-MM-DD"}}],"observed_patterns":[{{"category":"...","observation":"...","confidence_score":"high"}}]}}
 
-House down payment target_amount is always 1500000."""
+Rules:
+- House down payment target_amount is always 1500000
+- due_date must be in YYYY-MM-DD format, never natural language like "November 25th" """
 
     try:
         raw = client.chat.completions.create(
@@ -195,7 +195,7 @@ House down payment target_amount is always 1500000."""
             temperature=0
         ).choices[0].message.content.strip()
     except Exception as e:
-        print(f"[MEMORY] sync failed : {e}")
+        print(f"[MEMORY] sync failed: {e}")
         return existing
 
     raw = re.sub(r"```[\w]*\n?|```", "", raw).strip()
@@ -207,25 +207,45 @@ House down payment target_amount is always 1500000."""
         print(f"\n[MEMORY] Synced:\n{json.dumps(data, indent=2)}")
         return mem
     except (json.JSONDecodeError, TypeError) as e:
-        # FIX 5 — don't silently return stale memory, log and preserve what we have
         print(f"[MEMORY] bad JSON from LLM, keeping existing memory. Error: {e}")
         print(f"[MEMORY] raw response was: {raw[:200]}")
-        existing.summary += f" | Session update failed to parse — raw LLM output logged above."
+        existing.summary += f" | Session update failed to parse."
         return existing
 
 
+def call_llm_with_retry(messages: list) -> object | None:
+    """
+    Call Groq LLM. If Groq rejects with a days-as-string tool validation
+    error, inject a correction hint and retry once. Necessary because Groq
+    validates tool args server-side before returning — safe_args alone
+    cannot intercept a rejection that happens before the response arrives.
+    """
+    for attempt in range(2):
+        try:
+            return client.chat.completions.create(
+                model=MODEL, messages=messages,
+                tools=TOOLS, tool_choice="auto"
+            )
+        except Exception as e:
+            err = str(e)
+            if attempt == 0 and "expected integer" in err and "days" in err:
+                print(f"[FINNO] days type error from Groq, injecting hint and retrying")
+                messages = messages + [{
+                    "role": "user",
+                    "content": "Important: the 'days' parameter in get_recent_transactions must be an integer, not a string. Use 30, not '30'. Please retry."
+                }]
+                continue
+            print(f"[FINNO] LLM failed: {e}")
+            return None
+    return None
+
+
 def agent_turn(messages: list) -> list:
-    try:
-        response = client.chat.completions.create(
-            model=MODEL, messages=messages,
-            tools=TOOLS, tool_choice="auto"
-        )
-    except Exception as e:
-        print(f"[FINNO] LLM failed : {e}")
+    response = call_llm_with_retry(messages)
+    if response is None:
         messages.append({"role": "assistant", "content": "Something went wrong, please try again."})
         return messages
 
-    # FIX 4 — lowered from 10 to 4; finance turns need at most 2-3 tool calls
     iteration, MAX_ITER = 0, 4
 
     while response.choices[0].finish_reason == "tool_calls":
@@ -237,7 +257,7 @@ def agent_turn(messages: list) -> list:
 
         msg = response.choices[0].message
 
-        # FIX 3 — safe_args used here, no duplicate int-cast needed
+        # normalise args before appending to message history
         tool_calls_normalized = []
         for tc in msg.tool_calls:
             try:
@@ -263,7 +283,6 @@ def agent_turn(messages: list) -> list:
             except json.JSONDecodeError:
                 print(f"[TOOL] bad args for {tc.function.name}: {tc.function.arguments}")
                 args = {}
-            # safe_args already called inside execute_tool — no duplicate here
             tool_results.append({
                 "role":         "tool",
                 "tool_call_id": tc.id,
@@ -272,13 +291,8 @@ def agent_turn(messages: list) -> list:
 
         messages.extend(tool_results)
 
-        try:
-            response = client.chat.completions.create(
-                model=MODEL, messages=messages,
-                tools=TOOLS, tool_choice="auto"
-            )
-        except Exception as e:
-            print(f"[FINNO] LLM failed after tools : {e}")
+        response = call_llm_with_retry(messages)
+        if response is None:
             messages.append({"role": "assistant", "content": "Something went wrong, please try again."})
             return messages
 
@@ -307,7 +321,6 @@ def run_session(session_num: int):
     save_memory(memory)
     print("\n[MEMORY] Saved.")
 
-    # FIX 1 — save transcript to file so evaluators can read it without re-running
     transcript_path = f"session_{session_num}_transcript.txt"
     with open(transcript_path, "w", encoding="utf-8") as f:
         f.write(f"FINNO — Session {session_num} Transcript\n")
