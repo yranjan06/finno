@@ -1,0 +1,44 @@
+{
+  "summary": "Priya reviewed her November finances after salary credit. Food delivery spend was Rs.12,240 last month — higher than expected. She committed to cutting it in half and transferring Rs.30,000 to her house fund by the 25th. Upcoming bills of Rs.46,500 were reviewed and the savings plan was confirmed as realistic with a Rs.51,500 buffer remaining.",
+  "goals": [
+    {
+      "goal_id": "g1",
+      "description": "Save Rs.15 lakh in 2 years for house down payment in Bangalore",
+      "target_amount": 1500000,
+      "status": "active"
+    },
+    {
+      "goal_id": "g2",
+      "description": "Contribute Rs.30,000 to house fund every month",
+      "target_amount": 30000,
+      "status": "active"
+    }
+  ],
+  "commitments": [
+    {
+      "commitment_id": "c1",
+      "action_item": "Transfer Rs.30,000 to house fund",
+      "frequency": "one-time",
+      "due_date": "2025-11-25"
+    },
+    {
+      "commitment_id": "c2",
+      "action_item": "Cut food delivery spend in half — target under Rs.6,120 this month",
+      "frequency": "monthly",
+      "due_date": "2025-11-30"
+    }
+  ],
+  "observed_patterns": [
+    {
+      "category": "food_delivery",
+      "observation": "Rs.12,240 spent last month across Swiggy and Zomato — primary overspend area",
+      "confidence_score": "high"
+    },
+    {
+      "category": "savings",
+      "observation": "Has existing house_fund and mutual_funds accounts — already saving but needs to accelerate",
+      "confidence_score": "high"
+    }
+  ],
+  "last_updated": "2025-11-03T21:00:00.000000"
+}

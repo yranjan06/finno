@@ -65,8 +65,19 @@ def save_memory(m: Memory):
         print(f"[MEMORY] save failed : {e}")
 
 
+# FIX 3 — single safe_args helper, replaces duplicate int-cast patches
+def safe_args(name: str, args: dict) -> dict:
+    """Normalise tool arguments before dispatch. One place, not two."""
+    if name == "get_recent_transactions" and "days" in args:
+        try:
+            args["days"] = int(args["days"])
+        except (ValueError, TypeError):
+            args["days"] = 30  # safe default
+    return args
+
+
 def execute_tool(name: str, args: dict) -> str:
-    args = args or {}
+    args = safe_args(name, args or {})
     print(f"\n[TOOL] {name}({args})")
 
     try:
@@ -74,7 +85,7 @@ def execute_tool(name: str, args: dict) -> str:
             result = get_account_balance()
 
         elif name == "get_recent_transactions":
-            days   = int(args.get("days", 30))
+            days   = args.get("days", 30)
             today  = SCENARIO_DATE.get(_tools.CURRENT_SESSION, "2025-11-03")
             cutoff = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=days)).strftime("%Y-%m-%d")
             txns   = [t for t in get_recent_transactions(days) if t["date"] > cutoff]
@@ -118,6 +129,8 @@ def execute_tool(name: str, args: dict) -> str:
 
 def build_prompt(memory: Memory, session_num: int) -> str:
     today = SCENARIO_DATE.get(session_num, "2025-11-03")
+    # FIX 6 — removed "do NOT show arithmetic" rule which contradicted
+    # "show how the purchase affects their savings goal"
     p = f"""You are Priya's personal finance agent.
 Today: {today} | {USER_PROFILE['name']}, {USER_PROFILE['age']}, {USER_PROFILE['city']}, Rs.{USER_PROFILE['monthly_income']}/month
 Goal: {USER_PROFILE['goal']}
@@ -125,7 +138,6 @@ Goal: {USER_PROFILE['goal']}
 Rules:
 - balance/bills/transactions -> ALWAYS call tool first, never quote memory numbers
 - spending questions -> call get_recent_transactions with specific category
-- do NOT show arithmetic , just state final number
 - financial decision -> check commitments first then respond
 - call set_reminder when asked OR when request conflicts with commitment
 - reminder dates must be November 2025
@@ -134,7 +146,7 @@ Rules:
 For purchase decisions:
 - call get_account_balance and get_upcoming_bills first
 - explicitly reference savings commitments from memory
-- show how the purchase affects their savings goal
+- show impact on savings goal with numbers (e.g. Rs.X leaves Rs.Y for the month)
 - give a clear recommendation with reasoning
 - do NOT just set a reminder and leave them hanging"""
 
@@ -195,7 +207,10 @@ House down payment target_amount is always 1500000."""
         print(f"\n[MEMORY] Synced:\n{json.dumps(data, indent=2)}")
         return mem
     except (json.JSONDecodeError, TypeError) as e:
-        print(f"[MEMORY] bad JSON : {e}")
+        # FIX 5 — don't silently return stale memory, log and preserve what we have
+        print(f"[MEMORY] bad JSON from LLM, keeping existing memory. Error: {e}")
+        print(f"[MEMORY] raw response was: {raw[:200]}")
+        existing.summary += f" | Session update failed to parse — raw LLM output logged above."
         return existing
 
 
@@ -210,31 +225,29 @@ def agent_turn(messages: list) -> list:
         messages.append({"role": "assistant", "content": "Something went wrong, please try again."})
         return messages
 
-    iteration, MAX_ITER = 0, 10
+    # FIX 4 — lowered from 10 to 4; finance turns need at most 2-3 tool calls
+    iteration, MAX_ITER = 0, 4
 
     while response.choices[0].finish_reason == "tool_calls":
         iteration += 1
         if iteration > MAX_ITER:
-            print(f"[FINNO] hit max iterations , breaking")
-            messages.append({"role": "assistant", "content": "Got stuck, please try again."})
+            print(f"[FINNO] hit max iterations ({MAX_ITER}), breaking loop")
+            messages.append({"role": "assistant", "content": "Got stuck in too many tool calls, please try again."})
             return messages
 
         msg = response.choices[0].message
 
-        # normalize arguments before appending — fixes days string bug
+        # FIX 3 — safe_args used here, no duplicate int-cast needed
         tool_calls_normalized = []
         for tc in msg.tool_calls:
-            raw_args = tc.function.arguments
             try:
-                parsed = json.loads(raw_args)
-                if tc.function.name == "get_recent_transactions" and "days" in parsed:
-                    parsed["days"] = int(parsed["days"])
-                raw_args = json.dumps(parsed)
-            except (json.JSONDecodeError, ValueError):
-                pass
+                parsed = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                parsed = {}
+            parsed = safe_args(tc.function.name, parsed)
             tool_calls_normalized.append({
                 "id": tc.id, "type": "function",
-                "function": {"name": tc.function.name, "arguments": raw_args}
+                "function": {"name": tc.function.name, "arguments": json.dumps(parsed)}
             })
 
         messages.append({
@@ -247,11 +260,10 @@ def agent_turn(messages: list) -> list:
         for tc in msg.tool_calls:
             try:
                 args = json.loads(tc.function.arguments)
-                if tc.function.name == "get_recent_transactions" and "days" in args:
-                    args["days"] = int(args["days"])
-            except (json.JSONDecodeError, ValueError):
-                print(f"[TOOL] bad args : {tc.function.arguments}")
+            except json.JSONDecodeError:
+                print(f"[TOOL] bad args for {tc.function.name}: {tc.function.arguments}")
                 args = {}
+            # safe_args already called inside execute_tool — no duplicate here
             tool_results.append({
                 "role":         "tool",
                 "tool_call_id": tc.id,
@@ -275,6 +287,7 @@ def agent_turn(messages: list) -> list:
     print(f"\n[FINNO] {final}")
     return messages
 
+
 def run_session(session_num: int):
     print(f"\n{'='*50}\nFINNO — Session {session_num}\n{'='*50}\n")
     memory = load_memory()
@@ -293,6 +306,15 @@ def run_session(session_num: int):
     memory = sync_memory(memory, messages)
     save_memory(memory)
     print("\n[MEMORY] Saved.")
+
+    # FIX 1 — save transcript to file so evaluators can read it without re-running
+    transcript_path = f"session_{session_num}_transcript.txt"
+    with open(transcript_path, "w", encoding="utf-8") as f:
+        f.write(f"FINNO — Session {session_num} Transcript\n")
+        f.write(f"Date: {SCENARIO_DATE.get(session_num, 'unknown')}\n")
+        f.write("=" * 50 + "\n\n")
+        f.write(build_transcript(messages))
+    print(f"[FINNO] Transcript saved to {transcript_path}")
 
 
 if __name__ == "__main__":
