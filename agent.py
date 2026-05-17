@@ -99,7 +99,6 @@ def load_memory() -> Memory:
     try:
         with open(MEMORY_FILE, "r") as f:
             data = json.load(f)
-        # filter unknown keys so old finno_memory.json files dont crash us
         valid = {k: v for k, v in data.items() if k in Memory.__dataclass_fields__}
         return Memory(**valid)
     except (json.JSONDecodeError, TypeError):
@@ -115,9 +114,10 @@ def save_memory(m: Memory):
     except IOError as e:
         print(f"[MEMORY] failed to save : {e}")
 
+
 def execute_tool(name: str, args: dict) -> str:
     args = args or {}
-    print(f"\n[TOOL] {name}({args})")
+    print(f"\n[TOOL] calling {name} with {args}")
 
     if name == "get_account_balance":
         result = get_account_balance()
@@ -132,7 +132,6 @@ def execute_tool(name: str, args: dict) -> str:
         ).strftime("%Y-%m-%d")
 
         txns = [t for t in txns if t["date"] > cutoff]
-
         category = args.get("category", "").strip().lower()
 
         if category and category not in ("all", "any", "none"):
@@ -161,12 +160,11 @@ def execute_tool(name: str, args: dict) -> str:
         date = args.get("date", "").strip()
         content = args.get("content", "").strip()
 
-        # LLM sometimes forgets required params , guard both
         if not date:
-            print("[TOOL] set_reminder called without date , skipping")
+            print("[TOOL] set_reminder missing date , skipping")
             result = {"error": "date is required but was not provided"}
         elif not content:
-            print("[TOOL] set_reminder called without content , skipping")
+            print("[TOOL] set_reminder missing content , skipping")
             result = {"error": "content is required but was not provided"}
         else:
             result = set_reminder(date, content)
@@ -174,8 +172,10 @@ def execute_tool(name: str, args: dict) -> str:
     else:
         result = {"error": f"unknown tool: {name}"}
 
-    print(f"[RESULT] {json.dumps(result, indent=2)}")
+    print(f"[TOOL] result: {json.dumps(result, indent=2)}")
     return json.dumps(result)
+
+
 
 def build_prompt(memory: Memory, session_num: int) -> str:
     today = SCENARIO_DATE.get(session_num, "2025-11-03")
@@ -226,16 +226,13 @@ def agent_turn(messages: list) -> list:
     MAX_ITERATIONS = 10
 
     while response.choices[0].finish_reason == "tool_calls":
-
         iteration += 1
         if iteration > MAX_ITERATIONS:
             print(f"[FINNO] hit max tool iterations ({MAX_ITERATIONS}) , breaking out")
-            messages.append({"role": "assistant", "content": "Sorry, I got stuck in a loop. Please try again."})
+            messages.append({"role": "assistant", "content": "Sorry, I got stuck. Please try again."})
             return messages
 
         msg = response.choices[0].message
-
-        # normalize fully to dict , no SDK objects in messages list
         tool_calls_dict = []
         for tc in msg.tool_calls:
             tool_calls_dict.append({
