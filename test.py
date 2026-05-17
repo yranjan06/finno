@@ -23,8 +23,9 @@ if __name__ == "__main__":
     session = int(sys.argv[1]) if len(sys.argv) > 1 else 1
     turns   = SESSION_1_TURNS if session == 1 else SESSION_2_TURNS
 
-    if session == 2:
-        tools.CURRENT_SESSION = 2
+    # auto flip session — no need to touch tools.py manually
+    tools.CURRENT_SESSION = session
+    print(f"[TEST] CURRENT_SESSION set to {session}")
 
     with patch("builtins.input", side_effect=turns + ["exit"]):
         run_session(session)
