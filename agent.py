@@ -26,7 +26,7 @@ USER_PROFILE  = {
 
 TOOLS = [
     {"type":"function","function":{"name":"get_account_balance","description":"Get current balances. Always call for fresh data.","parameters":{"type":"object","properties":{},"required":[]}}},
-    {"type":"function","function":{"name":"get_recent_transactions","description":"Transactions for last N days. Pass category to filter e.g. food_delivery.","parameters":{"type":"object","properties":{"days":{"type":"integer","description":"Days to look back"},"category":{"type":"string","description":"Category to filter"}},"required":["days"]}}},
+    {"type":"function","function":{"name":"get_recent_transactions","description":"Transactions for last N days. Pass category to filter e.g. food_delivery.","parameters":{"type":"object","properties":{"days":{"type":"integer","description":"Days to look back. Must be an integer e.g. 30"},"category":{"type":"string","description":"Category to filter"}},"required":["days"]}}},
     {"type":"function","function":{"name":"get_upcoming_bills","description":"Upcoming bills for next 30 days.","parameters":{"type":"object","properties":{},"required":[]}}},
     {"type":"function","function":{"name":"set_reminder","description":"Set a reminder.","parameters":{"type":"object","properties":{"date":{"type":"string","description":"YYYY-MM-DD"},"content":{"type":"string","description":"Reminder text"}},"required":["date","content"]}}}
 ]
@@ -126,10 +126,17 @@ Rules:
 - balance/bills/transactions -> ALWAYS call tool first, never quote memory numbers
 - spending questions -> call get_recent_transactions with specific category
 - do NOT show arithmetic , just state final number
-- financial decision -> check commitments first
+- financial decision -> check commitments first then respond
 - call set_reminder when asked OR when request conflicts with commitment
 - reminder dates must be November 2025
-- tone: brief, direct, friendly"""
+- tone: brief, direct, friendly
+
+For purchase decisions:
+- call get_account_balance and get_upcoming_bills first
+- explicitly reference savings commitments from memory
+- show how the purchase affects their savings goal
+- give a clear recommendation with reasoning
+- do NOT just set a reminder and leave them hanging"""
 
     if memory.summary:
         p += f"""
@@ -213,23 +220,36 @@ def agent_turn(messages: list) -> list:
             return messages
 
         msg = response.choices[0].message
+
+        # normalize arguments before appending — fixes days string bug
+        tool_calls_normalized = []
+        for tc in msg.tool_calls:
+            raw_args = tc.function.arguments
+            try:
+                parsed = json.loads(raw_args)
+                if tc.function.name == "get_recent_transactions" and "days" in parsed:
+                    parsed["days"] = int(parsed["days"])
+                raw_args = json.dumps(parsed)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            tool_calls_normalized.append({
+                "id": tc.id, "type": "function",
+                "function": {"name": tc.function.name, "arguments": raw_args}
+            })
+
         messages.append({
             "role": "assistant",
             "content": msg.content or "",
-            "tool_calls": [
-                {
-                    "id": tc.id, "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments}
-                }
-                for tc in msg.tool_calls
-            ]
+            "tool_calls": tool_calls_normalized
         })
 
         tool_results = []
         for tc in msg.tool_calls:
             try:
                 args = json.loads(tc.function.arguments)
-            except json.JSONDecodeError:
+                if tc.function.name == "get_recent_transactions" and "days" in args:
+                    args["days"] = int(args["days"])
+            except (json.JSONDecodeError, ValueError):
                 print(f"[TOOL] bad args : {tc.function.arguments}")
                 args = {}
             tool_results.append({
@@ -254,7 +274,6 @@ def agent_turn(messages: list) -> list:
     messages.append({"role": "assistant", "content": final})
     print(f"\n[FINNO] {final}")
     return messages
-
 
 def run_session(session_num: int):
     print(f"\n{'='*50}\nFINNO — Session {session_num}\n{'='*50}\n")
